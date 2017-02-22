@@ -1,4 +1,5 @@
 *.txt
 *.csv
+test.py
 input/*
 tmp/*
