@@ -4,6 +4,6 @@ with open(sys.argv[1]) as file:
 	line = file.readline()
 	cnt = 0
 	while line and cnt < maxn:
-		print(line)
+		print(line.strip())
 		cnt += 1
 		line = file.readline()
