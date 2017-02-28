@@ -4,3 +4,5 @@
 test.py
 input/*
 tmp/*
+*.zip
+*.dump

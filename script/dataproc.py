@@ -6,5 +6,5 @@ Created on Sun Feb 26 15:16:39 2017
 """
 import pandas as pd
 import logging
-def process():
-    logging.info('pp')
+def preprocess():
+    logging.info('预处理.')
