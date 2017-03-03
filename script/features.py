@@ -59,42 +59,50 @@ def getLabels(dat, mode='train'):
 def extractAll(mode = 'train'):
     featurePath = os.path.join('../temp/', mode + '_features.csv')
     labelPath = os.path.join('../temp/', mode + '_labels.csv')
-
-    if os.path.exists(featurePath) and\
-       os.path.exists(labelPath):
-        return (pd.read_csv(featurePath), 
-                pd.read_csv(labelPath))
-
+    if mode == 'train':
+        if os.path.exists(featurePath) and\
+           os.path.exists(labelPath):
+            return (pd.read_csv(featurePath), 
+                    pd.read_csv(labelPath))
+    else:
+        if os.path.exists(featurePath):
+            return pd.read_csv(featurePath)
     #提取特征
     logging.info('加载user_pay.txt...')
     user_pay = pd.read_csv('../input/dataset/user_pay.txt', 
                            header = None, names = ['uid', 'sid', 'stamp'],
                            dtype = np.str)
-    logging.info('提取Label...')
-    labels = getLabels(user_pay)
+    labels = None
+    if mode == 'train':
+        logging.info('提取Label...')
+        labels = getLabels(user_pay)
     f1 = Last_week_sales(mode=mode)
     logging.info('提取最近7天的销量数据...')
     f1 = f1.extract(user_pay)
     features = f1
-    if not (features['sid'].equals(labels['sid'])) or\
-       not (features['stamp'].equals(labels['stamp'])):
-        features.to_csv(featurePath+'.dump', index=False, encoding='utf-8')
-        labels.to_csv(labelPath+'.dump', index=False, encoding='utf-8')
-        raise Exception('特征和标签不匹配！数据已保存到dump。')
-    #保存计算的features到outPath
-    features = features.drop(['sid', 'stamp'], axis='columns')
-    labels = labels.drop(['sid', 'stamp'], axis='columns')
-    logging.info('保存提取的特征和label...')
+    if mode == 'train':
+        if not (features['sid'].equals(labels['sid'])) or\
+           not (features['stamp'].equals(labels['stamp'])):
+            features.to_csv(featurePath+'.dump', index=False, encoding='utf-8')
+            labels.to_csv(labelPath+'.dump', index=False, encoding='utf-8')
+            raise Exception('特征和标签不匹配！数据已保存到dump。')
+        #保存计算的features到outPath
+        features = features.drop(['sid', 'stamp'], axis='columns')
+        labels = labels.drop(['sid', 'stamp'], axis='columns')
+        logging.info('保存提取的label...')
+        labels.to_csv(labelPath, index=False, encoding='utf-8')
+    logging.info('保存提取的特征...')
     features.to_csv(featurePath, index=False, encoding='utf-8')
-    labels.to_csv(labelPath, index=False, encoding='utf-8')
-    
-    return (features, labels)
+    if mode == 'train':
+        return (features, labels)
+    return features
 #
 class BaseFeature:
     def __init__(self, outDir = '../temp/', 
                  featureName = 'base', mode = 'train'):
         self.outFile = os.path.join(outDir, mode + '_' + featureName + '.csv')
         self.name = featureName
+        self.mode = mode
         self.data = None
         if os.path.exists(self.outFile):
             self.data = pd.read_csv(self.outFile, dtype = np.str)
@@ -115,8 +123,35 @@ class Last_week_sales(BaseFeature):
         #提取特征
         dat = indata
         dat['stamp'] = dat['stamp'].str[:10]
-        dat = dat[(dat['stamp'] >= '2015-07-01') & 
-          (dat['stamp'] <= '2016-10-17')]
+        if self.mode == 'train':
+            dat = dat[(dat['stamp'] >= '2015-07-01') & 
+                      (dat['stamp'] <= '2016-10-17')]
+        else:
+            dat = dat[(dat['stamp'] >= '2016-10-25') & 
+                      (dat['stamp'] <= '2016-10-31')]
+        if self.mode != 'train':
+            dat = dat.groupby('sid')
+            cols = ['sid']
+            for k in range(7):
+                cols.append('day%d'%(k+1))
+            days = pd.DataFrame(columns=cols)
+            for sid in [str(k) for k in range(1, 2001)]:
+                tmp = {}
+                tmp['sid'] = sid
+                try:
+                    sale = dat.get_group(sid)
+                    sale = sale.groupby('stamp').size()
+                    for k in range(7):
+                        try:
+                            tmp['day%d'%(k+1)] = sale.loc['2016-10-%d'%(25+k)]
+                        except:
+                            tmp['day%d'%(k+1)] = 0
+                except:
+                    logging.warn('%s在提取特征时间段没有销售量'%sid)
+                    for k in range(1, 8):
+                        tmp['day%d'%k] = 0
+                days = days.append(tmp, ignore_index=True)
+            return days
         dat = dat.groupby('sid')
         days = None
         for sid in [str(k) for k in range(1, 2001)]:

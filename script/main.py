@@ -48,11 +48,23 @@ class Warpxgboost(BaseEstimator):
             dat.insert(len(dat.columns), '_%d'%k, p)
             dat.columns = ['day%d'%n for n in range(1, 8)]
         labels.columns = ['day%d'%k for k in range(1, 15)]
-        return labels#array, (n_samples,)
+        return labels.round()#array, (n_samples,)
 def main():
     model = None
-    if os.path.exists('../temp/model.pkl'):
-        model = joblib.load('../temp/model.pkl') 
+    #mode = 'predict'
+    modelPath = '../temp/model.pkl'
+    if os.path.exists(modelPath):
+        logging.info('从%s中加载模型...'%modelPath)
+        model = joblib.load(modelPath)
+        feature = extractAll('predict')
+        X = feature.iloc[:, 1:]
+        logging.info('预测中...')
+        y = model.predict(X)
+        logging.info('预测结束.')
+        y.insert(0, 'sid', feature['sid'])
+        y.to_csv('../temp/result.csv', header=False, index=False,
+                 encoding='utf-8', float_format='%0.0f')
+        logging.info('已将结果保存到../temp/result.csv')
     else:
         dataproc.preprocess()
         (feature, label) = extractAll()
@@ -69,15 +81,20 @@ def main():
         feature = feature[index]
         label = label[index]
         logging.info('去掉无效数据后还剩%d条.' % (feature.shape[0]))
-        model = xgboost.XGBRegressor(silent=True,  n_estimators=100)
-        #model = LinearRegression()
+        model = Warpxgboost(xgboost.XGBRegressor(silent=True,
+                                                 n_estimators=100))
+        #model = Warpxgboost(LinearRegression())
         logging.info('开始交叉验证...')
         #注意n_jobs使用多CPU时，不可以调试，否则会抛出异常
-        scores = cross_val_score(Warpxgboost(model), feature, label, 
+        scores = cross_val_score(model, feature, label, 
                                  cv=KFold(n_splits=3, shuffle=True), 
                                  n_jobs=-1, 
                                  scoring=official_loss)
         logging.info('交叉验证的结果%s' % str(scores))
+        logging.info('用所有数据训练模型...')
+        model.fit(feature, label)
+        joblib.dump(model, modelPath)
+        logging.info('已将训练好的模型保存到%s.'%modelPath)
 #
 if __name__ == '__main__':
     logging.basicConfig(
