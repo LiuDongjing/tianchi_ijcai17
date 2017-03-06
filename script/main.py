@@ -23,17 +23,26 @@ def official_loss(estimator, X, y):
     divs = subs / adds
     N = divs.shape[0] * divs.shape[1]
     return divs.sum().sum() / N
-class Warpxgboost(BaseEstimator):
+class WarpModel(BaseEstimator):
     ''''''
     def __init__(self, model):
-        self.model = model
+        klass = model.__class__
+        self.modelList = []
+        for k in range(14):
+            self.modelList.append(klass(**(model.get_params(deep=False))))
+        self.__initParams = {}
+        self.__initParams['model'] = model
+    def get_params(self, deep=False):
+        '''返回构造该类的参数'''
+        return self.__initParams
     def fit(self, X, y):
         '''X=[n_samples, n_features]
            y=[n_samples, n_targets]'''
         #注意重置index，不然模型计算过程中会出错
         X_ = X.reset_index(drop=True)
-        y_ = y.iloc[:, 0].reset_index(drop=True)
-        self.model.fit(X_, y_)
+        for k in range(14):
+            y_ = y.iloc[:, k].reset_index(drop=True)
+            self.modelList[k].fit(X_, y_)
         return self
     def predict(self, X):
         '''X=[n_samples, n_features]'''
@@ -41,12 +50,9 @@ class Warpxgboost(BaseEstimator):
         dat = X.reset_index(drop=True)
         labels = pd.DataFrame()
         for k in range(14):
-            p = self.model.predict(dat)
+            p = self.modelList[k].predict(dat)
             p = pd.DataFrame({'tmp%d'%k:p})
             labels.insert(k, 'day%d'%(k+1), p)
-            dat = dat.drop(dat.columns[0], axis='columns')
-            dat.insert(len(dat.columns), '_%d'%k, p)
-            dat.columns = ['day%d'%n for n in range(1, 8)]
         labels.columns = ['day%d'%k for k in range(1, 15)]
         return labels.round()#array, (n_samples,)
 def main():
@@ -55,7 +61,8 @@ def main():
     modelPath = '../temp/model.pkl'
     if os.path.exists(modelPath):
         logging.info('从%s中加载模型...'%modelPath)
-        model = joblib.load(modelPath)
+        #joblib.load加载的是保存到磁盘中的对象，不仅仅是训练好的模型
+        model = joblib.load(modelPath) 
         feature = extractAll('predict')
         X = feature.iloc[:, 1:]
         logging.info('预测中...')
@@ -69,27 +76,30 @@ def main():
         dataproc.preprocess()
         (feature, label) = extractAll()
         logging.info('共有%d条训练数据.' % feature.shape[0])
-        index = (feature['day1'] > 0) |\
-                (feature['day2'] > 0) |\
-                (feature['day3'] > 0) |\
-                (feature['day4'] > 0) |\
-                (feature['day5'] > 0) |\
-                (feature['day6'] > 0) |\
+        index1 = (feature['day1'] > 0) &\
+                (feature['day2'] > 0) &\
+                (feature['day3'] > 0) &\
+                (feature['day4'] > 0) &\
+                (feature['day5'] > 0) &\
+                (feature['day6'] > 0) &\
                 (feature['day7'] > 0)
-        for k in range(14):
-            index = index | label['day%d'%(k+1)] > 0
+        index2 = label['day1'] > 0
+        for k in range(2, 15):
+            index2 = index2 & label['day%d'%k] > 0
+        index = index1 & index2
         feature = feature[index]
         label = label[index]
         logging.info('去掉无效数据后还剩%d条.' % (feature.shape[0]))
-        model = Warpxgboost(xgboost.XGBRegressor(silent=True,
-                                                 n_estimators=100))
-        #model = Warpxgboost(LinearRegression())
+        model = WarpModel(xgboost.XGBRegressor(
+                          silent=True, n_estimators=100))
+        #model = WarpModel(LinearRegression)
         logging.info('开始交叉验证...')
         #注意n_jobs使用多CPU时，不可以调试，否则会抛出异常
         scores = cross_val_score(model, feature, label, 
                                  cv=KFold(n_splits=3, shuffle=True), 
                                  n_jobs=-1, 
-                                 scoring=official_loss)
+                                 scoring=official_loss
+                                 )
         logging.info('交叉验证的结果%s' % str(scores))
         logging.info('用所有数据训练模型...')
         model.fit(feature, label)
