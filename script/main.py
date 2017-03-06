@@ -76,15 +76,10 @@ def main():
         dataproc.preprocess()
         (feature, label) = extractAll()
         logging.info('共有%d条训练数据.' % feature.shape[0])
-        index1 = (feature['day1'] > 0) &\
-                (feature['day2'] > 0) &\
-                (feature['day3'] > 0) &\
-                (feature['day4'] > 0) &\
-                (feature['day5'] > 0) &\
-                (feature['day6'] > 0) &\
-                (feature['day7'] > 0)
+        index1 = feature['day1'] > 0
         index2 = label['day1'] > 0
         for k in range(2, 15):
+            index1 = index1 & feature['day%d'%k] > 0
             index2 = index2 & label['day%d'%k] > 0
         index = index1 & index2
         feature = feature[index]
@@ -119,4 +114,4 @@ if __name__ == '__main__':
     logging.getLogger('').addHandler(console);
     clock()
     main()
-    clock()
+    logging.info('共耗时%f分钟.' % (clock()/60))

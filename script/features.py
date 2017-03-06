@@ -45,10 +45,10 @@ def getLabels(dat, mode='train'):
             else:
                 shop.loc[idx, 'sales'] = shop.loc[idx+1, 'sales'].values[0]
         #前7天用于提取特征
-        temp = pd.DataFrame({'stamp':shop['stamp'][7:-14].reset_index(drop=True)})
+        temp = pd.DataFrame({'stamp':shop['stamp'][14:-14].reset_index(drop=True)})
         N = shop.shape[0]
         for n in range(14):
-            t = shop['sales'][7+n:N+n-14].reset_index(drop=True)
+            t = shop['sales'][14+n:N+n-14].reset_index(drop=True)
             temp.insert(n+1, 'day%d'%(n+1), t)
         temp['sid'] = sid
         if days is None:
@@ -77,7 +77,7 @@ def extractAll(mode = 'train'):
         logging.info('提取Label...')
         labels = getLabels(user_pay)
     f1 = Last_week_sales(mode=mode)
-    logging.info('提取最近7天的销量数据...')
+    logging.info('提取最近14天的销量数据...')
     f1 = f1.extract(user_pay)
     features = f1
     if mode == 'train':
@@ -113,7 +113,7 @@ class BaseFeature:
 class Last_week_sales(BaseFeature):
     def __init__(self, mode = 'train'):
         BaseFeature.__init__(self, 
-                             featureName = 'Last_week_sales',
+                             featureName = 'Last_two_weeks_sales',
                              mode = mode)
     def extract(self, indata):
         if self.data is not None:
@@ -127,12 +127,12 @@ class Last_week_sales(BaseFeature):
             dat = dat[(dat['stamp'] >= '2015-07-01') & 
                       (dat['stamp'] <= '2016-10-17')]
         else:
-            dat = dat[(dat['stamp'] >= '2016-10-25') & 
+            dat = dat[(dat['stamp'] >= '2016-10-18') & 
                       (dat['stamp'] <= '2016-10-31')]
         if self.mode != 'train':
             dat = dat.groupby('sid')
             cols = ['sid']
-            for k in range(7):
+            for k in range(14):
                 cols.append('day%d'%(k+1))
             days = pd.DataFrame(columns=cols)
             for sid in [str(k) for k in range(1, 2001)]:
@@ -141,14 +141,14 @@ class Last_week_sales(BaseFeature):
                 try:
                     sale = dat.get_group(sid)
                     sale = sale.groupby('stamp').size()
-                    for k in range(7):
+                    for k in range(14):
                         try:
-                            tmp['day%d'%(k+1)] = sale.loc['2016-10-%d'%(25+k)]
+                            tmp['day%d'%(k+1)] = sale.loc['2016-10-%d'%(18+k)]
                         except:
                             tmp['day%d'%(k+1)] = 0
                 except:
                     logging.warn('%s在提取特征时间段没有销售量'%sid)
-                    for k in range(1, 8):
+                    for k in range(1, 15):
                         tmp['day%d'%k] = 0
                 days = days.append(tmp, ignore_index=True)
             return days
@@ -162,8 +162,8 @@ class Last_week_sales(BaseFeature):
             shop.rename_axis({0:'sales'}, axis='columns', inplace=True)
             shop = shop.sort_values('stamp')
             N = shop.shape[0]
-            if N < 7:
-                logging.warn('%s的数据条数不足7个.'%sid)
+            if N < 14:
+                logging.warn('%s的数据条数不足14个.'%sid)
                 continue
             full = pd.DataFrame({'stamp':
                         pd.date_range(shop['stamp'][0], '2016-10-17').\
@@ -177,10 +177,10 @@ class Last_week_sales(BaseFeature):
                             values[0] + shop.loc[idx+1, 'sales'].values[0])/2)
                 else:
                     shop.loc[idx, 'sales'] = shop.loc[idx+1, 'sales'].values[0]
-            temp = pd.DataFrame({'stamp':shop['stamp'][7:].reset_index(drop=True)})
+            temp = pd.DataFrame({'stamp':shop['stamp'][14:].reset_index(drop=True)})
             N = shop.shape[0]
-            for n in range(7):
-                t = shop['sales'][n:N-7+n].reset_index(drop=True)
+            for n in range(14):
+                t = shop['sales'][n:N-14+n].reset_index(drop=True)
                 temp.insert(n+1, 'day%d'%(n+1), t)
             temp['sid'] = sid
             if days is None:
