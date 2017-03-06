@@ -1,6 +1,8 @@
 *.txt
 *.csv
 *.pyc
+*.png
+*.pkl
 test.py
 input/*
 tmp/*
