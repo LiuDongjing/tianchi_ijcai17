@@ -16,6 +16,14 @@ def crossJoin(df1, df2):
     return df
 def getLabels(dat, mode='train'):
     '''获取未来14天的销量'''
+    cache_path = '../temp/label_with_sid_stamp.csv'
+    if os.path.exists(cache_path):
+        logging.info('从%s读取数据.'%cache_path)
+        dtype={'sid':np.str, 'stamp':np.str}
+        for k in range(14):
+            dtype['day%d'%(k+1)] = np.int
+        return pd.read_csv(cache_path,
+                           dtype=dtype)
     dat = dat[(dat['stamp'] >= '2015-07-01') & 
               (dat['stamp'] <= '2016-10-31')]
     dat['stamp'] = dat['stamp'].str[:10]
@@ -44,7 +52,7 @@ def getLabels(dat, mode='train'):
                         values[0] + shop.loc[idx+1, 'sales'].values[0])/2)
             else:
                 shop.loc[idx, 'sales'] = shop.loc[idx+1, 'sales'].values[0]
-        #前7天用于提取特征
+        #前14天用于提取特征
         temp = pd.DataFrame({'stamp':shop['stamp'][14:-14].reset_index(drop=True)})
         N = shop.shape[0]
         for n in range(14):
@@ -55,10 +63,12 @@ def getLabels(dat, mode='train'):
             days = temp
         else:
             days = days.append(temp)
+    days.to_csv(cache_path, index=None)
     return days
 def extractAll(mode = 'train'):
     featurePath = os.path.join('../temp/', mode + '_features.csv')
     labelPath = os.path.join('../temp/', mode + '_labels.csv')
+    labels = None
     if mode == 'train':
         if os.path.exists(featurePath) and\
            os.path.exists(labelPath):
@@ -72,14 +82,25 @@ def extractAll(mode = 'train'):
     user_pay = pd.read_csv('../input/dataset/user_pay.txt', 
                            header = None, names = ['uid', 'sid', 'stamp'],
                            dtype = np.str)
-    labels = None
-    if mode == 'train':
+    
+    if mode == 'train' and labels is None:
         logging.info('提取Label...')
         labels = getLabels(user_pay)
     f1 = Last_week_sales(mode=mode)
     logging.info('提取最近14天的销量数据...')
     f1 = f1.extract(user_pay)
-    features = f1
+    f2 = Weather(mode=mode)
+    logging.info('提取天气数据...')
+    f2 = f2.extract()
+    if mode == 'train':
+        features = f1.merge(f2, on=['sid','stamp'], how='left')
+    else:
+        features = f1.merge(f2, on=['sid'], how='left')
+    if features.isnull().any().any():
+        raise Exception('存在无效数据!')
+    features = features.reset_index(drop=True)
+    if mode == 'train':
+        labels = labels.reset_index(drop=True)
     if mode == 'train':
         if not (features['sid'].equals(labels['sid'])) or\
            not (features['stamp'].equals(labels['stamp'])):
@@ -99,22 +120,27 @@ def extractAll(mode = 'train'):
 #
 class BaseFeature:
     def __init__(self, outDir = '../temp/', 
-                 featureName = 'base', mode = 'train'):
+                 featureName = 'base', mode = 'train',
+                 dtype=np.str):
         self.outFile = os.path.join(outDir, mode + '_' + featureName + '.csv')
         self.name = featureName
         self.mode = mode
         self.data = None
         if os.path.exists(self.outFile):
-            self.data = pd.read_csv(self.outFile, dtype = np.str)
+            self.data = pd.read_csv(self.outFile, dtype = dtype)
             logging.info('从%s中载入特征%s.' % (self.outFile, self.name))
     def extract(self, indata):
         return self.data
 #
 class Last_week_sales(BaseFeature):
     def __init__(self, mode = 'train'):
+        dtype = {'sid':np.str, 'stamp':np.str}
+        for k in range(1, 15):
+            dtype['day%d'%k] = np.int
         BaseFeature.__init__(self, 
                              featureName = 'Last_two_weeks_sales',
-                             mode = mode)
+                             mode = mode,
+                             dtype=dtype)
     def extract(self, indata):
         if self.data is not None:
             return self.data
@@ -125,7 +151,7 @@ class Last_week_sales(BaseFeature):
         dat['stamp'] = dat['stamp'].str[:10]
         if self.mode == 'train':
             dat = dat[(dat['stamp'] >= '2015-07-01') & 
-                      (dat['stamp'] <= '2016-10-17')]
+                      (dat['stamp'] <= '2016-10-18')]
         else:
             dat = dat[(dat['stamp'] >= '2016-10-18') & 
                       (dat['stamp'] <= '2016-10-31')]
@@ -151,6 +177,9 @@ class Last_week_sales(BaseFeature):
                     for k in range(1, 15):
                         tmp['day%d'%k] = 0
                 days = days.append(tmp, ignore_index=True)
+            days.to_csv(self.outFile, index=False, encoding='utf-8', 
+                          float_format='%0.0f')
+            logging.info('已将最近14天的销售数据保存到%s.'%self.outFile)
             return days
         dat = dat.groupby('sid')
         days = None
@@ -189,5 +218,82 @@ class Last_week_sales(BaseFeature):
                 days = days.append(temp)
         days.to_csv(self.outFile, index=False, encoding='utf-8', 
                           float_format='%0.0f')
-        logging.info('已将最近7天的销售数据保存到%s.'%self.outFile)
+        logging.info('已将最近14天的销售数据保存到%s.'%self.outFile)
         return days
+class Weather(BaseFeature):
+    '''提取每家店所在城市的天气数据，雨天为True，否则False；
+        还包括了最高温度'''
+    def __init__(self, mode='train'):
+        dtype = {'sid':np.str, 'stamp':np.str}
+        for k in range(1, 15):
+            dtype['maxt%d'%k] = np.float
+            dtype['desc%d'%k] = np.bool
+        BaseFeature.__init__(self, 
+                             featureName = 'weather',
+                             mode = mode, dtype=dtype)
+    def extract(self, indata=None):
+        if self.data is not None:
+            return self.data
+        logging.info('读取文件%s.'%'../input/weather_all.csv')
+        wh = pd.read_csv('../input/weather_all.csv', 
+                         header=None, names=['city', 
+                         'stamp', 'maxt', 'desc'],
+                         usecols=[0,1,2,4], dtype={'city':np.str,
+                                 'stamp':np.str,'maxt':np.int,'desc':np.str})
+        if self.mode == 'train':
+            wh = wh[(wh['stamp'] >= '2015-07-15') &
+                    (wh['stamp'] <= '2016-10-31')]
+        else:
+            wh = wh[(wh['stamp'] >= '2016-11-01') &
+                    (wh['stamp'] <= '2016-11-14')]
+        wh.loc[:, 'desc'] = wh.desc.apply(lambda s:'雨' in s)
+        logging.info('读取文件%s.'%'../input/dataset/shop_info.txt')
+        shop_info = pd.read_csv('../input/dataset/shop_info.txt',
+                                header=None, names=['sid', 'city'],
+                                usecols=[0,1], dtype=np.str)
+        weather = shop_info.merge(wh, on='city', how='left')
+        weather = weather.drop('city', axis='columns')
+        gb = weather.groupby('sid')
+        weather = None
+        if self.mode != 'train':
+            for sid in [str(e) for e in range(1, 2001)]:
+                logging.info('weather:%s.'%sid)
+                print(sid)
+                dat = gb.get_group(sid).reset_index(drop=True)
+                dat = dat.sort_values('stamp')
+                dat = dat.drop('stamp', axis='columns')
+                tmp = pd.DataFrame({'sid':[sid]})
+                for k in range(14):
+                    tmp.insert(2*k+1, 'maxt%d'%(k+1),dat.loc[k, 'maxt'])
+                    tmp.insert(2*k+2, 'desc%d'%(k+1),dat.loc[k, 'desc'])
+                if weather is None:
+                    weather = tmp
+                else:
+                    weather = weather.append(tmp)
+            weather.to_csv(self.outFile, index=False, encoding='utf-8')
+            logging.info('已将天气特征保存到%s.'%self.outFile)
+            return weather
+        for sid in [str(e) for e in range(1, 2001)]:
+            logging.info('weather:%s.'%sid)
+            print(sid)
+            dat = gb.get_group(sid).reset_index(drop=True)
+            dat = dat.drop('sid', axis='columns')
+            dat = dat.sort_values('stamp')
+            tmp = pd.DataFrame({'stamp':
+                        pd.date_range('2015-07-15', '2016-10-18').\
+                                     strftime('%Y-%m-%d')})
+            N = dat.shape[0]
+            for k in range(14):
+                 tmp.insert(2*k+1, 'maxt%d'%(k+1), dat.loc[k:N-14+k, 'maxt']\
+                            .reset_index(drop=True))
+                 tmp.insert(2*k+2, 'desc%d'%(k+1), dat.loc[k:N-14+k, 'desc']\
+                            .reset_index(drop=True))
+            tmp['sid'] = sid
+            if weather is None:
+                weather = tmp
+            else:
+                weather = weather.append(tmp)
+        weather.to_csv(self.outFile, index=False, encoding='utf-8')
+        logging.info('已将天气特征保存到%s.'%self.outFile)
+        return weather
+        

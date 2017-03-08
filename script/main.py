@@ -33,7 +33,8 @@ class WarpModel(BaseEstimator):
         self.__initParams = {}
         self.__initParams['model'] = model
     def get_params(self, deep=False):
-        '''返回构造该类的参数'''
+        '''返回构造该类的参数, 因为交叉验证的函数会clone传进去的model对象，会调用该方法
+        '''
         return self.__initParams
     def fit(self, X, y):
         '''X=[n_samples, n_features]
@@ -41,8 +42,11 @@ class WarpModel(BaseEstimator):
         #注意重置index，不然模型计算过程中会出错
         X_ = X.reset_index(drop=True)
         for k in range(14):
+            xt = X_.iloc[:,0:14]
+            xt.insert(14, 'maxt', X_.iloc[:, 14+2*k])
+            xt.insert(15, 'desc', X_.iloc[:, 14+2*k+1])
             y_ = y.iloc[:, k].reset_index(drop=True)
-            self.modelList[k].fit(X_, y_)
+            self.modelList[k].fit(xt, y_)
         return self
     def predict(self, X):
         '''X=[n_samples, n_features]'''
@@ -50,7 +54,10 @@ class WarpModel(BaseEstimator):
         dat = X.reset_index(drop=True)
         labels = pd.DataFrame()
         for k in range(14):
-            p = self.modelList[k].predict(dat)
+            xt = dat.iloc[:,0:14]
+            xt.insert(14, 'maxt', dat.iloc[:,14+2*k])
+            xt.insert(15, 'desc', dat.iloc[:,14+2*k+1])
+            p = self.modelList[k].predict(xt)
             p = pd.DataFrame({'tmp%d'%k:p})
             labels.insert(k, 'day%d'%(k+1), p)
         labels.columns = ['day%d'%k for k in range(1, 15)]
@@ -79,8 +86,8 @@ def main():
         index1 = feature['day1'] > 0
         index2 = label['day1'] > 0
         for k in range(2, 15):
-            index1 = index1 & feature['day%d'%k] > 0
-            index2 = index2 & label['day%d'%k] > 0
+            index1 = index1 | feature['day%d'%k] > 0
+            index2 = index2 | label['day%d'%k] > 0
         index = index1 & index2
         feature = feature[index]
         label = label[index]
@@ -92,7 +99,7 @@ def main():
         #注意n_jobs使用多CPU时，不可以调试，否则会抛出异常
         scores = cross_val_score(model, feature, label, 
                                  cv=KFold(n_splits=3, shuffle=True), 
-                                 n_jobs=-1, 
+                                 #n_jobs=-1, 
                                  scoring=official_loss
                                  )
         logging.info('交叉验证的结果%s' % str(scores))
