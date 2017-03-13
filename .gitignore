@@ -4,7 +4,8 @@
 *.png
 *.pkl
 test.py
+script/test_tensorflow.py
 input/*
-tmp/*
+temp/*
 *.zip
 *.dump
