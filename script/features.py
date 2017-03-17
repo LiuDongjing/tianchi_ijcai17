@@ -3,6 +3,20 @@
 Created on Sat Feb 25 15:20:03 2017
 
 @author: LiuYangkai
+    提取特征的代码，只提取了前14天的销量和未来14天的天气数据。
+    
+    最终特征的组织格式如下
+        sid,stamp,day1,day2,...,day14,maxt1,desc1,maxt2,desc2,...,maxt14,desc14
+    sid是商家的id，stamp是日期yyyy-mm-dd，day1-day14是stamp前14天的销量(不包括stamp)，
+    maxt1-maxt14是未来14天的最高温度(包括stamp)，desc1-desc14表示未来14天是否下雨(包
+    括stamp)。
+    
+    标签的组织格式
+        sid,stamp,day1,day2,...,day14
+    sid和stamp同上，day1-day14是未来14天的销量，其中day1即是stamp当天的销量。
+    
+    当验证完特征的sid以及stamp和标签的一一对应后，就会移除两者的sid和stamp域，组成最终的
+    数据集。
 """
 import os, logging
 import pandas as pd
@@ -45,6 +59,7 @@ def getLabels(dat, mode='train'):
                                  strftime('%Y-%m-%d')})
         shop = full.merge(shop, how='left', on='stamp')
         shop.fillna(0, inplace=True)
+        #双12的销量用前后两天的均值表示
         idx = shop[shop['stamp'] == '2015-12-12'].axes[0]
         if len(idx) >= 1:
             if idx[0] > 0:
@@ -133,6 +148,10 @@ class BaseFeature:
         return self.data
 #
 class Last_week_sales(BaseFeature):
+    '''过去14天的销量，最终得到的数据格式如下：
+            sid,stamp,day1,day2,day3,...,day14
+        sid是商家id，stamp是日期yyyy-mm-dd，day1-day14分别是前14天到前1天的销售量
+    '''
     def __init__(self, mode = 'train'):
         dtype = {'sid':np.str, 'stamp':np.str}
         for k in range(1, 15):
@@ -199,6 +218,8 @@ class Last_week_sales(BaseFeature):
                                      strftime('%Y-%m-%d')})
             shop = full.merge(shop, how='left', on='stamp')
             shop.fillna(0, inplace=True)
+            
+            #双12的销量用前后两天的均值填充
             idx = shop[shop['stamp'] == '2015-12-12'].axes[0]
             if len(idx) >= 1:
                 if idx[0] > 0:
@@ -221,8 +242,11 @@ class Last_week_sales(BaseFeature):
         logging.info('已将最近14天的销售数据保存到%s.'%self.outFile)
         return days
 class Weather(BaseFeature):
-    '''提取每家店所在城市的天气数据，雨天为True，否则False；
-        还包括了最高温度'''
+    '''提取每家店所在城市的天气数据，雨天为True，否则False；还包括了最高温度。
+        数据格式如下：
+            sid,stamp,maxt1,desc1,maxt2,desc2,...,maxt14,desc14
+        sid和stamp和前面一样，maxtk和desck分别表示第k天的最高温度和天气，desck为True，
+        表示第k天下雨，否则不下雨。'''
     def __init__(self, mode='train'):
         dtype = {'sid':np.str, 'stamp':np.str}
         for k in range(1, 15):

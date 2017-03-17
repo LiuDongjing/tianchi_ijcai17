@@ -1,9 +1,22 @@
 '''
-统计文件有多少行
-查看文件的前N行
-随机取N行作为测试样本
-输入 python head.py -h
-查看更多帮助信息
+    功能：
+        - 统计文件有多少行
+        - 查看文件的前N行
+        - 随机取N行作为测试样本
+
+    usage: head.py [-h] [--number NUMBER] [--random] [--count] file
+    
+    查看文件的前N行或者随机N行，也可以统计文件的行数
+    
+    positional arguments:
+      file                  输入文件
+    
+    optional arguments:
+      -h, --help            show this help message and exit
+      --number NUMBER, -n NUMBER
+                            行数
+      --random, -r          是否启用随机模式
+      --count, -c           统计文件有多少行
 '''
 import argparse
 from time import clock

@@ -3,15 +3,23 @@
 Created on Fri Feb 24 14:46:52 2017
 
 @author: LiuYangkai
+    训练流程：随机取10%的数据作为测试集，其余的作为训练集。用训练集对模型进行交叉验证，
+        接着用所有的训练集训练模型，最后用测试集评估模型的loss值。
+    关于模型：用WarpModel包装基本的回归模型使之可以输出14天的预测值，基本思想是
+        WarpModel里包含了14个基本的模型的对象，每个对象负责预测某一天的销量，14个模型的
+        训练和预测过程相互独立。
+    模型融合：分别使用xgboost、GBDT和RandomForest作为WarpModel的基本模型，得到三个
+        结果，赋予相应的权重得到最终结果。
+    特征：前14天的销售量和待预测14天的天气和最高温度。注意这些特征在模型训练和预测时的
+        使用。
+        
 """
 import logging, xgboost, os
 from features import extractAll
-import dataproc
 from time import clock
 from sklearn.externals import joblib
 from sklearn.model_selection import KFold, cross_val_score
 import pandas as pd
-import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -34,6 +42,7 @@ def select_test(n, count):
         p += 1
     return index
 def official_loss(estimator, X, y):
+    '''官方定义的loss函数'''
     #注意重置index，不然会出现意想不到的问题
     y_ = y.reset_index(drop=True)
     y_p = estimator.predict(X)
@@ -43,7 +52,7 @@ def official_loss(estimator, X, y):
     N = divs.shape[0] * divs.shape[1]
     return divs.sum().sum() / N
 class WarpModel(BaseEstimator):
-    ''''''
+    '''包装基本的回归模型，使得该类可以输出14天的预测值。'''
     def __init__(self, model):
         klass = model.__class__
         self.modelList = []
@@ -61,6 +70,8 @@ class WarpModel(BaseEstimator):
         #注意重置index，不然模型计算过程中会出错
         X_ = X.reset_index(drop=True)
         for k in range(14):
+            #前14天的销量和第k天的天气和最高温度作为第k个模型的训练特征
+            #其余的特征并未使用。predict也是这样处理的。
             xt = X_.iloc[:,0:14]
             xt.insert(14, 'maxt', X_.iloc[:, 14+2*k])
             xt.insert(15, 'desc', X_.iloc[:, 14+2*k+1])
@@ -68,7 +79,8 @@ class WarpModel(BaseEstimator):
             self.modelList[k].fit(xt, y_)
         return self
     def predict(self, X):
-        '''X=[n_samples, n_features]'''
+        '''X=[n_samples, n_features]
+        返回 y=[n_samples, n_labels]'''
         #注意重置index，不然模型计算过程中会出错
         dat = X.reset_index(drop=True)
         labels = pd.DataFrame()
@@ -80,13 +92,16 @@ class WarpModel(BaseEstimator):
             p = pd.DataFrame({'tmp%d'%k:p})
             labels.insert(k, 'day%d'%(k+1), p)
         labels.columns = ['day%d'%k for k in range(1, 15)]
-        return labels.round()#array, (n_samples,)
+        return labels.round()
 def main():
     model = None
-    #mode = 'predict'
     modelPath = '../temp/model.pkl'
+    
+    #模型名及对应的权重
     modelWeight = [0.3, 0.4, 0.3]
     modelName = ['xgboost', 'GBDT', 'RandomForest']
+    
+    #如果模型已经训练好，就进行预测得出最终结果
     if os.path.exists(modelPath):
         logging.info('从%s中加载模型...'%modelPath)
         #joblib.load加载的是保存到磁盘中的对象，不仅仅是训练好的模型
@@ -106,9 +121,10 @@ def main():
                  encoding='utf-8', float_format='%0.0f')
         logging.info('已将结果保存到../temp/result.csv')
     else:
-        dataproc.preprocess()
         (feature, label) = extractAll()
         logging.info('共有%d条训练数据.' % feature.shape[0])
+        
+        #过滤一部分无效数据
         index1 = feature['day1'] > 0
         index2 = label['day1'] > 0
         for k in range(2, 15):
@@ -118,6 +134,8 @@ def main():
         feature = feature[index]
         label = label[index]
         logging.info('去掉无效数据后还剩%d条.' % (feature.shape[0]))
+        
+        #划分训练集和测试集
         test_set = select_test(feature.shape[0], round(feature.shape[0]*0.1))
         test_feature = feature.loc[test_set, :]
         test_label = label.loc[test_set, :]
@@ -127,6 +145,8 @@ def main():
         feature = feature.loc[test_set, :]
         label = label.loc[test_set, :]
         logging.info('用%d个样本用作训练.'%feature.shape[0])
+        
+        #交叉验证
         modelList = [WarpModel(xgboost.XGBRegressor(
                           silent=True, n_estimators=100)), 
                      WarpModel(GradientBoostingRegressor()),
