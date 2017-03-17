@@ -39,3 +39,7 @@ Loss函数的定义如下：
 
 ### 结果
 基于xgboost的混合模型效果要明显好于神经网络的方法，提交结果后的loss值是**0.092552**，而神经网络线下测试的loss是**0.623244**，效果太差就没提交上去。
+
+---
+
+团队：[@tecore](https://tianchi.aliyun.com/science/scientistDetail.htm?userId=1095279118908) [@巴尔干2016](https://tianchi.aliyun.com/science/scientistDetail.htm?spm=5176.100170.222.4.fxW0P2&userId=1095279120707)
